@@ -69,6 +69,7 @@ public class TestCase {
             , SAXException
             , IOException {
 
+        long timestamp = System.currentTimeMillis();
         TestCase testCase = new TestCase();
         testCase.setUri2connect(args[0]);
         testCase.setLogin(args[1]);
@@ -94,8 +95,7 @@ public class TestCase {
             psmt.addBatch();
 
         }
-        int [] numUpdates=psmt.executeBatch();
-        for(int i: numUpdates) System.out.println(i);
+        psmt.executeBatch();
         conn.commit();
 
 // 3. build xml from TEST.FIELD
@@ -104,13 +104,13 @@ public class TestCase {
         DocumentBuilder dBuilder = icFactory.newDocumentBuilder();
         Document doc = dBuilder.newDocument();
 
-        Element entries = doc.createElement("Entries");
+        Element entries = doc.createElement("entries");
         doc.appendChild(entries);
 
         ResultSet r = stmt.executeQuery("SELECT field FROM test");
         while (r.next()) {
             String value = Integer.toString(r.getInt(1));
-            Element entry = doc.createElement("Entry");
+            Element entry = doc.createElement("entry");
             Element field = doc.createElement("field");
             field.setTextContent(value);
             entry.appendChild(field);
@@ -141,6 +141,7 @@ public class TestCase {
             String temp = n.getNodeValue();
             System.out.println(temp);
         }
+        System.out.println("Total execution time: "+(System.currentTimeMillis()-timestamp)/1000+" sec");
     }
 }
 
