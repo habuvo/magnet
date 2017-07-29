@@ -82,9 +82,7 @@ public class TestCase {
         conn.setAutoCommit(false);
         Statement stmt = conn.createStatement();
         PreparedStatement psmt = conn.prepareStatement("INSERT INTO test (field) VALUES (?)");
-        Source xmlInput = new StreamSource(new File("1.xml"));
-        Source xsl = new StreamSource(new File("convert.xsl"));
-        Result xmlOutput = new StreamResult(new File("2.xml"));
+
 // 2. drop table and insert N records
         stmt.execute("CREATE TABLE IF NOT EXISTS test (field INTEGER)");
         stmt.execute("TRUNCATE test");
@@ -128,7 +126,10 @@ public class TestCase {
         conn.close();
 
 // 4. convert elements to attributes
-        tr.reset();
+        Source xsl = new StreamSource(new File("convert.xsl"));
+        tr = TransformerFactory.newInstance().newTransformer(xsl);
+        Source xmlInput = new StreamSource(new File("1.xml"));
+        Result xmlOutput = new StreamResult(new File("2.xml"));
         tr.transform(xmlInput, xmlOutput);
 
 // 5. parse 2.xml and output sum to con
