@@ -136,12 +136,19 @@ public class TestCase {
 
         dBuilder.reset();
         doc = dBuilder.parse(new File("2.xml"));
-        NodeList fieldsList = doc.getElementsByTagName("fields");
-        for (int i = 1; i <= fieldsList.getLength(); i++) {
-            Node n = fieldsList.item(i).getFirstChild();
-            String temp = n.getNodeValue();
-            System.out.println(temp);
+        Node root = doc.getFirstChild();
+        NodeList children = root.getChildNodes();
+        int summ = 0;
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            NamedNodeMap attributes = node.getAttributes();
+            Node field = attributes.getNamedItem("field");
+            summ += Integer.parseInt(field.getNodeValue());
         }
+
+        System.out.println("Summ is " +summ);
+
+
         System.out.println("Total execution time: "+(System.currentTimeMillis()-timestamp)/1000+" sec");
     }
 }
