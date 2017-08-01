@@ -6,9 +6,12 @@ import javax.xml.transform.*;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.*;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.sql.*;
+
+import static java.lang.System.exit;
 
 public class TestCase {
 
@@ -16,6 +19,7 @@ public class TestCase {
     private String uri2connect;
     private String login;
     private String password;
+    private Connection dbConnection;
 
     public TestCase() {
     }
@@ -52,92 +56,140 @@ public class TestCase {
         this.password = password;
     }
 
+    public boolean startDbConnection() {
+        try {
+            this.dbConnection = DriverManager.getConnection(this.getUri2connect()
+                    , this.getPassword()
+                    , this.getLogin());
+            this.dbConnection.setAutoCommit(false);
+        } catch (SQLException e) {
+            e.printStackTrace();
+            if (this.dbConnection != null) try {
+                this.dbConnection.close();
+            } catch (SQLException e1) {
+                e1.printStackTrace();
+                return false;
+            }
+        }
+        return true;
+    }
 
-    /*
-    Format to call app: testcase url,login,pass,number
-    @uri2connect - URI for DB connection
-    @login - login to DB
-    @password - password to DB
-    @N - count of rows in DB
+    public void stopDBConnection() {
+        try {
+            this.dbConnection.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
 
+    /*  create table and fill it
+        @table - table name
+        @field - field name
+        @type - field type
     */
 
-    public static void main(String args[]) throws
-            SQLException
-            , ParserConfigurationException
-            , TransformerException
-            , SAXException
-            , IOException {
+    public boolean createTable(String table, String field, String type) {
+        try {
+            Statement sqlStatement = dbConnection.createStatement();
+            PreparedStatement sqlPrepStatement = dbConnection.prepareStatement("INSERT INTO " + table + " (" + field + ") VALUES (?)");
+            sqlStatement.execute("CREATE TABLE IF NOT EXISTS " + table + " (" + field + " " + type + ")");
+            sqlStatement.execute("TRUNCATE " + table);
 
-        long timestamp = System.currentTimeMillis();
-        TestCase testCase = new TestCase();
-        testCase.setUri2connect(args[0]);
-        testCase.setLogin(args[1]);
-        testCase.setPassword(args[2]);
-        testCase.setN(Integer.parseInt(args[3]));
-
-        Connection conn = DriverManager.getConnection(testCase.getUri2connect()
-                , testCase.getPassword()
-                , testCase.getLogin());
-        conn.setAutoCommit(false);
-        Statement stmt = conn.createStatement();
-        PreparedStatement psmt = conn.prepareStatement("INSERT INTO test (field) VALUES (?)");
-
-        // 2. trunc table and insert N records
-        stmt.execute("CREATE TABLE IF NOT EXISTS test (field INTEGER)");
-        stmt.execute("TRUNCATE test");
-
-        for (int i = 1; i <= testCase.getN(); i++) {
-            psmt.setInt(1, i);
-            psmt.addBatch();
+            for (int i = 1; i <= this.getN(); i++) {
+                sqlPrepStatement.setInt(1, i);
+                sqlPrepStatement.addBatch();
+            }
+            sqlPrepStatement.executeBatch();
+            dbConnection.commit();
+            return true;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
         }
-        psmt.executeBatch();
-        conn.commit();
-        System.out.println("Insert table execution time: "
-                + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
+    }
 
-        // 3. build xml from TEST.FIELD
-        DocumentBuilderFactory icFactory = DocumentBuilderFactory.newInstance();
-        DocumentBuilder dBuilder = icFactory.newDocumentBuilder();
-        Document doc = dBuilder.newDocument();
+     /*  create XML from DB data
+         @table - table name
+         @field - field name
+         @levelOne - top level tag name
+         @levelTwo - child level tag name
+         @xnlFile - XML file name
+    */
 
-        Element entries = doc.createElement("entries");
-        doc.appendChild(entries);
+    public boolean createXML(String table, String field, String levelOne, String levelTwo, String xmlFile) {
 
-        ResultSet r = stmt.executeQuery("SELECT field FROM test");
-        while (r.next()) {
-            String value = Integer.toString(r.getInt(1));
-            Element entry = doc.createElement("entry");
-            Element field = doc.createElement("field");
-            field.setTextContent(value);
-            entry.appendChild(field);
-            entries.appendChild(entry);
+        try {
+            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
+            Statement sqlStatement = dbConnection.createStatement();
+
+            Element entries = doc.createElement(levelOne);
+            doc.appendChild(entries);
+
+            ResultSet result = sqlStatement.executeQuery("SELECT " + field + " FROM " + table);
+            while (result.next()) {
+                String value = Integer.toString(result.getInt(1));
+                Element entry = doc.createElement(levelTwo);
+                Element xfield = doc.createElement(field);
+                xfield.setTextContent(value);
+                entry.appendChild(xfield);
+                entries.appendChild(entry);
+            }
+            Transformer xmlTransform = TransformerFactory.newInstance().newTransformer();
+            xmlTransform.transform(new DOMSource(doc), new StreamResult(new FileOutputStream(xmlFile)));
+            return true;
+        } catch (ParserConfigurationException e) {
+            e.printStackTrace();
+            return false;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        } catch (TransformerException e) {
+            e.printStackTrace();
+            return false;
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+            return false;
         }
 
-        Transformer tr = TransformerFactory.newInstance().newTransformer();
-        DOMSource source = new DOMSource(doc);
-        FileOutputStream fos = new FileOutputStream("1.xml");
-        StreamResult result = new StreamResult(fos);
-        tr.transform(source, result);
+    }
 
-        r.close();
-        stmt.close();
-        conn.close();
-        System.out.println("Build XML execution time: "
-                + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
+    /*   convert elements to attributes with XSLT script
+         @inFile - file name to convert
+         @outFile - result file name
+         @xsl - XSLT file name
 
-        // 4. convert elements to attributes
-        Source xsl = new StreamSource(new File("convert.xsl"));
-        tr = TransformerFactory.newInstance().newTransformer(xsl);
-        Source xmlInput = new StreamSource(new File("1.xml"));
-        Result xmlOutput = new StreamResult(new File("2.xml"));
-        tr.transform(xmlInput, xmlOutput);
-        System.out.println("Convert to attributes time: "
-                + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
+    */
+    public boolean xmlConversion(String inFile, String outFile, String xsl) {
+        try {
+            Transformer xmlTransform = TransformerFactory.newInstance().newTransformer(new StreamSource(new File(xsl)));
+            xmlTransform.transform(new StreamSource(new File(inFile)), new StreamResult(new File(outFile)));
+            return true;
+        } catch (TransformerException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
 
-        // 5. parse 2.xml and output summ to con
-        dBuilder.reset();
-        doc = dBuilder.parse(new File("2.xml"));
+    /*   summ values from XML file
+         @inFile - XML file name
+     */
+
+    public long getSumm(String inFile) {
+
+        Document doc = null;
+        try {
+            doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new File(inFile));
+        } catch (SAXException e) {
+            e.printStackTrace();
+            return -1;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return -1;
+        } catch (ParserConfigurationException e) {
+            e.printStackTrace();
+            return -1;
+        }
+
         Node root = doc.getFirstChild();
         NodeList children = root.getChildNodes();
         long summ = 0;
@@ -147,8 +199,60 @@ public class TestCase {
             Node field = attributes.getNamedItem("field");
             summ += (long) Integer.parseInt(field.getNodeValue());
         }
+        return summ;
+    }
 
-        System.out.println("Summ is " + summ);
+    /*	Format to call app: testcase url,login,pass,number
+        @uri2connect - URI for DB connection
+        @login - login to DB
+        @password - password to DB
+        @N - count of rows in DB
+    */
+    public static void main(String args[]) {
+
+        long timestamp = System.currentTimeMillis();
+        long summ;
+        TestCase testCase = new TestCase();
+        testCase.setUri2connect(args[0]);
+        testCase.setLogin(args[1]);
+        testCase.setPassword(args[2]);
+        testCase.setN(Integer.parseInt(args[3]));
+
+        if (!testCase.startDbConnection()) {
+            System.err.println("Error on establish connection");
+            exit(1);
+        }
+        ;
+        if (!testCase.createTable("test", "field", "INTEGER")) {
+            System.err.println("Error during creating table");
+            exit(1);
+        }
+        ;
+        System.out.println("Insert table execution time: "
+                + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
+
+        if (!testCase.createXML("test", "field", "entries", "entry", "1.xml")) {
+            System.err.println("Error during create XML");
+            testCase.stopDBConnection();
+            exit(1);
+        }
+        ;
+
+        System.out.println("Build XML execution time: "
+                + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
+
+        if (!testCase.xmlConversion("1.xml", "2.xml", "convert.xsl")) {
+            System.err.println("Error during XML conversion");
+            exit(1);
+        }
+        ;
+        System.out.println("Convert to attributes time: "
+                + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
+
+        summ = testCase.getSumm("2.xml");
+        System.out.println(summ != -1 ?
+                "Summ is " +summ
+                : "Error during summ operation");
         System.out.println("Total execution time: "
                 + (System.currentTimeMillis() - timestamp) / 1000 + " sec");
     }
